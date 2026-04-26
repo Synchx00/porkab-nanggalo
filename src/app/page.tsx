@@ -181,7 +181,7 @@ function HomeContent() {
               className="w-full h-64 object-cover"
             />
             <div className="p-6">
-              <h3 className="font-bold text-lg text-green-800 mb-2">Alamat</h3>
+              <h3 className="font-bold text-lg text-green-800 mb-2">{t("location.label")}</h3>
               <p className="text-gray-700 mb-4">{t("location.address")}</p>
               <a 
                 href="https://maps.app.goo.gl/4AhsF4GeYuYbigyB9"
