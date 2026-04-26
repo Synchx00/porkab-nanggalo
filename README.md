@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PORKAB Nanggalo
 
-## Getting Started
+Website for Yayasan PORKAB Nanggalo — sosial foundation for football sports and youth development in Padang, West Sumatra, Indonesia.
 
-First, run the development server:
+## 🌐 Live Site
+
+**https://porkabnanggalo.com**
+
+## Tech Stack
+
+- **Next.js 16** (App Router)
+- **Tailwind CSS**
+- **Docker** (multi-stage build)
+- **Nginx** (reverse proxy)
+- **Let's Encrypt** SSL
+
+## Sections
+
+- Hero with background image
+- Tentang Kami (About Us)
+- Sejarah (History Timeline: 1960 → 1977 → 2018)
+- Visi & Misi
+- Kegiatan Utama (Main Activities)
+- Galeri (Gallery)
+- Lokasi (Location)
+- Footer
+
+## Images
+
+Hosted on AWS S3:
+- `lapangan-1.jpeg` through `lapangan-6.jpeg` — Field images
+- `lapangan-logo.jpeg` — Organization logo
+- `lokasi-lapangan.jpeg` — Location map
+
+## Deployment
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Build Docker image
+sudo docker build -t porkab-web:latest .
+
+# Run container
+sudo docker run -d --name porkab-web -p 3000:3000 porkab-web:latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local Development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Security
 
-## Learn More
+- Hardened with security headers (CSP, HSTS, X-Frame, etc.)
+- Auto-renewal for SSL certificates via Certbot
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+© {year} Yayasan PORKAB Nanggalo
