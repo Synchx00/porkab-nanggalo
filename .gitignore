@@ -44,3 +44,4 @@ docker-compose*.yml
 
 # Misc
 .vercel/
+tsconfig.tsbuildinfo
