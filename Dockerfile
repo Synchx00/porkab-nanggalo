@@ -2,9 +2,11 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 RUN npm install -g npm@10.8.0 \
-    && npm ci --no-audit --no-fund
+    && npm ci --include=dev --no-audit --no-fund --registry=https://registry.npmjs.org \
+    && test -x node_modules/.bin/next \
+    && node_modules/.bin/next --version
 
 COPY . .
 RUN npm run build
