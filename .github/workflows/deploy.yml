@@ -1,0 +1,236 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: porkab-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/synchx00/porkab-nanggalo
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/synchx00/porkab-nanggalo:${{ github.sha }}
+            ghcr.io/synchx00/porkab-nanggalo:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${{ secrets.VPS_SSH_PRIVATE_KEY }}" \
+            > ~/.ssh/id_ed25519
+
+          chmod 600 ~/.ssh/id_ed25519
+
+          printf '%s\n' "${{ secrets.VPS_SSH_KNOWN_HOSTS }}" \
+            > ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ssh \
+            -p "$VPS_PORT" \
+            "$VPS_USER@$VPS_HOST" \
+            "bash -s -- '$IMAGE_TAG' '$VPS_DEPLOY_PATH'" <<'REMOTE'
+          set -Eeuo pipefail
+
+          TAG="$1"
+          DEPLOY_PATH="$2"
+
+          IMAGE_REPO="ghcr.io/synchx00/porkab-nanggalo"
+          NEW_IMAGE="${IMAGE_REPO}:${TAG}"
+
+          CONTAINER="porkab-nanggalo"
+          HOST_PORT="8081"
+
+          mkdir -p "$DEPLOY_PATH"
+
+          echo "=== Deployment ==="
+          echo "Image: $NEW_IMAGE"
+
+          PREVIOUS_IMAGE="$(
+            docker inspect \
+              --format '{{.Config.Image}}' \
+              "$CONTAINER" \
+              2>/dev/null || true
+          )"
+
+          if [ -n "$PREVIOUS_IMAGE" ]; then
+            echo "Previous image: $PREVIOUS_IMAGE"
+          else
+            echo "No previous deployment found."
+          fi
+
+          echo "=== Pull new image ==="
+
+          docker pull "$NEW_IMAGE"
+
+          echo "=== Detect application port ==="
+
+          INTERNAL_PORT="$(
+            docker image inspect "$NEW_IMAGE" \
+              --format '{{range $port, $_ := .Config.ExposedPorts}}{{println $port}}{{end}}' \
+              | head -n 1 \
+              | cut -d/ -f1
+          )"
+
+          if [ -z "$INTERNAL_PORT" ]; then
+            echo "ERROR: Docker image does not declare EXPOSE."
+            echo "Add EXPOSE <port> to the Dockerfile."
+            exit 1
+          fi
+
+          echo "Container port: $INTERNAL_PORT"
+          echo "Host port:      $HOST_PORT"
+
+          ENV_ARGS=()
+
+          if [ -f "$DEPLOY_PATH/.env" ]; then
+            echo "Using $DEPLOY_PATH/.env"
+            ENV_ARGS=(--env-file "$DEPLOY_PATH/.env")
+          else
+            echo "No production .env file found."
+          fi
+
+          echo "=== Replace container ==="
+
+          docker rm -f "$CONTAINER" 2>/dev/null || true
+
+          docker run -d \
+            --name "$CONTAINER" \
+            --restart unless-stopped \
+            "${ENV_ARGS[@]}" \
+            -p "127.0.0.1:${HOST_PORT}:${INTERNAL_PORT}" \
+            "$NEW_IMAGE"
+
+          echo "=== Wait for application ==="
+
+          HEALTHY=0
+
+          for attempt in $(seq 1 30); do
+            HTTP_CODE="$(
+              curl \
+                -sS \
+                -o /dev/null \
+                -w '%{http_code}' \
+                "http://127.0.0.1:${HOST_PORT}/" \
+                2>/dev/null || echo "000"
+            )"
+
+            echo "Attempt $attempt: HTTP $HTTP_CODE"
+
+            if [ "$HTTP_CODE" != "000" ] \
+              && [ "$HTTP_CODE" -ge 200 ] \
+              && [ "$HTTP_CODE" -lt 500 ]; then
+              HEALTHY=1
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ "$HEALTHY" != "1" ]; then
+            echo "ERROR: New deployment failed health check."
+
+            echo
+            echo "=== New container logs ==="
+            docker logs --tail 100 "$CONTAINER" || true
+
+            docker rm -f "$CONTAINER" 2>/dev/null || true
+
+            if [ -n "$PREVIOUS_IMAGE" ]; then
+              echo
+              echo "=== Rolling back ==="
+
+              PREVIOUS_PORT="$(
+                docker image inspect "$PREVIOUS_IMAGE" \
+                  --format '{{range $port, $_ := .Config.ExposedPorts}}{{println $port}}{{end}}' \
+                  | head -n 1 \
+                  | cut -d/ -f1
+              )"
+
+              docker run -d \
+                --name "$CONTAINER" \
+                --restart unless-stopped \
+                "${ENV_ARGS[@]}" \
+                -p "127.0.0.1:${HOST_PORT}:${PREVIOUS_PORT}" \
+                "$PREVIOUS_IMAGE"
+
+              echo "Rollback complete."
+            fi
+
+            exit 1
+          fi
+
+          echo
+          echo "=== Deployment successful ==="
+
+          docker ps \
+            --filter "name=$CONTAINER" \
+            --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
+
+          echo
+          echo "HTTP:"
+          curl -I "http://127.0.0.1:${HOST_PORT}/"
+
+          docker image prune -f
+          REMOTE
+
+      - name: Verify production
+        shell: bash
+        run: |
+          curl \
+            --fail \
+            --show-error \
+            --silent \
+            --retry 10 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            --output /dev/null \
+            https://porkabnanggalo.com/
+
+          echo "Production verification successful."
